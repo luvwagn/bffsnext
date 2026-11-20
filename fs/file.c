@@ -159,8 +159,8 @@ file_find(ULONG pinum, char *name)
                 break;
             }
 
-            if (bsd44fs && (inosize < MAXSYMLINKLEN))
-                strcpy(buf, (char *) inode->ic_db);
+            if (SYMLINK_IN_INODE(inode, inosize))
+                strncpy(buf, (char *) inode->ic_db, inosize);
             else
                 file_read(finum, 0, inosize, buf);
 
@@ -997,7 +997,10 @@ file_frag_expand(ULONG inum)
 void
 symlink_delete(ULONG inum, ULONG size)
 {
-    if (!bsd44fs || (size >= MAXSYMLINKLEN))
+    icommon_t *inode = inode_read(inum);
+
+    /* A fast symlink (target stored in the inode) owns no data blocks */
+    if ((inode == NULL) || !SYMLINK_IN_INODE(inode, size))
         file_deallocate(inum);
 }
 

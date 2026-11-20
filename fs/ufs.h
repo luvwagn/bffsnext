@@ -66,6 +66,24 @@ extern ULONG fs_lbmask;          /* quick mask, bits flipped ala q */
 
 #define MAXSYMLINKLEN (12 + 3) * 4 - 1
 
+/*
+ * SYMLINK_IN_INODE() is true when a symlink's target is stored in the
+ * inode's block pointer area ("fast" symlink) rather than in a data block.
+ *
+ * BSD 4.4 stores every target shorter than MAXSYMLINKLEN that way.
+ * NeXTSTEP / OPENSTEP also create fast symlinks, but on BSD 4.3 format
+ * filesystems (fs_inodefmt == -1), where bsd44fs is 0.  NeXT marks them
+ * with IC_FASTLINK (0x1) in ic_flags and they hold no data blocks, so
+ * ic_blocks == 0 identifies them (a block-based symlink always holds at
+ * least one fragment).  The target may fill all (NDADDR + NIADDR) * 4 = 60
+ * bytes, so no terminating NUL can be assumed for the 4.3 case.
+ */
+#define FASTLINK_MAX  ((12 + 3) * 4)
+#define SYMLINK_IN_INODE(inode, size)                                   \
+        (bsd44fs ? ((size) < (MAXSYMLINKLEN)) :                         \
+                   (((inode)->ic_blocks == 0) && ((size) != 0) &&       \
+                    ((size) <= FASTLINK_MAX)))
+
 int  open_dchange(void);
 void close_dchange(int normal);
 void motor_off(void);

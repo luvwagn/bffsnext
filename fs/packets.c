@@ -449,8 +449,8 @@ examine_common(BFFSLock_t *lock, FileInfoBlock_3_t *fib, fileattr_t *fattr)
                 ULONG  filesize = IC_SIZE(inode);
                 char  *buf = (char *) AllocMem(filesize + 1, MEMF_PUBLIC);
 
-                if (bsd44fs && (filesize < MAXSYMLINKLEN)) {
-                    strncpy(buf, inode->ic_db, filesize);
+                if (SYMLINK_IN_INODE(inode, filesize)) {
+                    strncpy(buf, (char *) inode->ic_db, filesize);
                     buf[filesize] = '\0';
                     ninum = file_find(lock->fl_Pinum, buf);
                 } else if (file_read(inum, 0, filesize, buf) == filesize) {
