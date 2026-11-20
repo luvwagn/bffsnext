@@ -81,6 +81,7 @@ S const char     *TRACKDISK = "trackdisk.device";  /* use for changeint */
 S char           *cgsummary_base;        /* memory copy of cg summary info  */
 S int             no_Sun_label;          /* 1 = Sun disk label not found */
 S int             no_BSD_label;          /* 1 = BSD disk label not found */
+S int             no_NeXT_label;         /* 1 = NeXT disk label not found */
 S int             env_setup = 1;         /* set up the ufs environment (once) */
 S ULONG           superblock_sector = SUPER_BLOCK; /* default location */
 
@@ -608,6 +609,125 @@ retvalue:
 }
 
 /*
+ * next_label_read()
+ *    This routine is used to sense a NeXT (NeXTSTEP / OPENSTEP) disk label
+ *    and set the partition offset (psectoffset) to the appropriate value
+ *    to get the specified partition.
+ *
+ *    The label lives at the very start of the disk and is always big
+ *    endian.  Partition bases and sizes are in units of dl_secsize bytes
+ *    (usually 1024, independent of the physical sector size) and are
+ *    relative to the end of the "front porch" (dl_front).  Fields are
+ *    picked out by byte offset because the on-disk structure is packed on
+ *    2-byte boundaries.
+ *
+ *    Bit 0x20 of the MountList Reserved field disables this scan.
+ */
+#define NEXT_LABEL_V1    0x4e655854  /* 'NeXT' */
+#define NEXT_LABEL_V2    0x646c5632  /* 'dlV2' */
+#define NEXT_LABEL_V3    0x646c5633  /* 'dlV3' */
+#define NEXT_LABEL_BYTES 1024        /* enough to cover the partition table */
+#define NEXT_DL_SECSIZE  92          /* long:  bytes per label "sector" */
+#define NEXT_DL_FRONT    112         /* short: front porch, in label sectors */
+#define NEXT_DL_PART     190         /* partition table, 8 entries */
+#define NEXT_DL_PARTSIZE 46          /* bytes per partition entry */
+#define NEXT_P_BASE      0           /* long:  partition base */
+#define NEXT_P_SIZE      4           /* long:  partition size */
+#define NEXT_BE16(p)     (((ULONG) (p)[0] << 8) | (ULONG) (p)[1])
+#define NEXT_BE32(p)     ((NEXT_BE16(p) << 16) | NEXT_BE16((p) + 2))
+
+static int
+next_label_read(int new_partition)
+{
+    UBYTE *label;             /* raw disk label */
+    UBYTE *part;              /* raw partition entry */
+    ULONG  label_bytes;
+    ULONG  magic;
+    ULONG  secsize;
+    ULONG  mult;
+    ULONG  base;
+    ULONG  size;
+    ULONG  part_off;
+    ULONG  part_end;
+    int    rc = 1;
+
+    if (no_NeXT_label)
+        return (1);
+
+    if (new_partition & 32) {
+        no_NeXT_label = 1;
+        return (1);
+    }
+
+    new_partition &= 7;
+    part_off = psectoffset;
+
+    label_bytes = NEXT_LABEL_BYTES;
+    if (label_bytes < phys_sectorsize)
+        label_bytes = phys_sectorsize;
+
+    label = (UBYTE *) AllocMem(label_bytes, MEMF_PUBLIC);
+    if (label == NULL) {
+        PRINT2(("next_label_read: unable to allocate %d bytes\n",
+                label_bytes));
+        return (1);
+    }
+
+    if (data_read(label, BOOT_BLOCK, label_bytes)) {
+        PRINT2(("** data read fault for NeXT label\n"));
+        no_NeXT_label = 1;
+        goto retvalue;
+    }
+
+    magic   = NEXT_BE32(label);
+    secsize = NEXT_BE32(label + NEXT_DL_SECSIZE);
+    if (((magic != NEXT_LABEL_V1) && (magic != NEXT_LABEL_V2) &&
+         (magic != NEXT_LABEL_V3)) ||
+        (secsize < phys_sectorsize) || (secsize > 8192) ||
+        (secsize % phys_sectorsize != 0)) {
+        no_NeXT_label = 1;
+        goto retvalue;
+    }
+    mult = secsize / phys_sectorsize;   /* physical sectors per label sector */
+
+    part = label + NEXT_DL_PART + NEXT_DL_PARTSIZE * new_partition;
+    base = NEXT_BE32(part + NEXT_P_BASE);
+    size = NEXT_BE32(part + NEXT_P_SIZE);
+
+    part_end = (ENVIRONMENT->de_HighCyl + 1) * ENVIRONMENT->de_Surfaces *
+                ENVIRONMENT->de_BlocksPerTrack;
+
+    /* An unused partition entry has base and size of -1 */
+    if ((base & 0x80000000) || (size & 0x80000000) || (size == 0) ||
+        (part_end <= part_off) ||
+        (base + NEXT_BE16(label + NEXT_DL_FRONT) >
+         (part_end - part_off) / mult) ||
+        (size > (part_end - part_off) / mult -
+                (base + NEXT_BE16(label + NEXT_DL_FRONT)))) {
+        PRINT(("bad values for NeXT disk label partition=%d\n",
+                new_partition));
+        PRINT(("device_begin=%u device_end=%u base=%u size=%u secsize=%u\n",
+                part_off, part_end, base, size, secsize));
+        no_NeXT_label = 1;
+        goto retvalue;
+    }
+
+    psectoffset = part_off +
+                  (base + NEXT_BE16(label + NEXT_DL_FRONT)) * mult;
+
+    PRINT(("Found NeXT label, using partition=%d at sector %u\n",
+            new_partition, psectoffset));
+
+    fs_partition = new_partition;
+    strcpy(stat->disk_type, "NeXT ");
+    rc = 0;
+
+retvalue:
+    FreeMem(label, label_bytes);
+    return (rc);
+}
+
+/*
  * partition_info_read()
  *    This routine will call the various disk label sensing routines
  *    to get the start address of the specified partition.  If no
@@ -623,8 +743,9 @@ partition_info_read(int partition)
 
     FSIZE = phys_sectorsize;
 
-    if (sun_label_read(partition) && bsd44_label_read(partition))
-        ret = 1;                /* could not read either */
+    if (sun_label_read(partition) && bsd44_label_read(partition) &&
+        next_label_read(partition))
+        ret = 1;                /* could not read any */
 
     return (ret);
 }
@@ -994,14 +1115,16 @@ find_superblock(void)
 
     no_Sun_label = 0;
     no_BSD_label = 0;
+    no_NeXT_label = 0;
 
     if (superblock_read(ENVIRONMENT->de_Reserved)) {
-        if (no_Sun_label && no_BSD_label) {
+        if (no_Sun_label && no_BSD_label && no_NeXT_label) {
             PRINT2(("Superblock not found at beginning of partition\n"));
             return (2);
         }
-        if (!no_Sun_label || !no_BSD_label) {
-            PRINT(("s=%d b=%d\n", no_Sun_label, no_BSD_label));
+        if (!no_Sun_label || !no_BSD_label || !no_NeXT_label) {
+            PRINT(("s=%d b=%d n=%d\n", no_Sun_label, no_BSD_label,
+                   no_NeXT_label));
             PRINT(("scanning other partitions\n"));
             for (part = 0; superblock_read(part); part++) {
                 if (part == MAX_PART) {
