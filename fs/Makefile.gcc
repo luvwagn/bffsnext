@@ -1,0 +1,56 @@
+#
+# Makefile.gcc - build BFFS with m68k-amigaos-gcc (AmigaPorts / bebbo) and
+# vasm, as a cross build on Linux/macOS/Windows.  The DICE build remains in
+# DMakefile.
+#
+#   make -f Makefile.gcc            all variants into ../l
+#   make -f Makefile.gcc robe       read-only, big endian only (NeXT, Sun)
+#
+# 68020 or better is required: with -m68000 libnix implements 32-bit
+# multiply/divide through utility.library, which is not opened in a
+# -nostartfiles handler.
+#
+CC    = m68k-amigaos-gcc
+VASM ?= vasmm68k_mot
+CPU  ?= -m68020
+CFLAGS  = -Os $(CPU) -noixemul -fcommon -std=gnu89 -w \
+          -iquote . -idirafter . -include gcc_compat.h
+LDFLAGS = -noixemul -nostartfiles $(CPU)
+LDIR  = ../l
+
+SRCS = handler.c debug.c packets.c ufs.c system.c fread.c fwrite.c file.c \
+       inode.c cache.c dir.c table.c alloc.c unixtime.c config.c request.c
+HDRS = $(wildcard *.h ufs/*.h)
+
+# name:object-dir:defines
+all: bffs ro be robe
+
+bffs:
+	@$(MAKE) -f Makefile.gcc OBJ=obj.gcc      DEFS="-DBOTHENDIAN"         $(LDIR)/BFFSFileSystem
+ro:
+	@$(MAKE) -f Makefile.gcc OBJ=obj.gcc.ro   DEFS="-DBOTHENDIAN -DRONLY" $(LDIR)/BFFSFileSystem.ro
+be:
+	@$(MAKE) -f Makefile.gcc OBJ=obj.gcc.be   DEFS=""                     $(LDIR)/BFFSFileSystem.be
+robe:
+	@$(MAKE) -f Makefile.gcc OBJ=obj.gcc.robe DEFS="-DRONLY"              $(LDIR)/BFFSFileSystem.robe
+
+OBJ  ?= obj.gcc
+OBJS  = $(OBJ)/gcc_start.o $(SRCS:%.c=$(OBJ)/%.o)
+
+# gcc_start.o must stay first: its first instruction is the handler entry
+$(LDIR)/BFFSFileSystem $(LDIR)/BFFSFileSystem.ro $(LDIR)/BFFSFileSystem.be $(LDIR)/BFFSFileSystem.robe: $(OBJS)
+	@mkdir -p $(LDIR)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) -lamiga
+
+$(OBJ)/%.o: %.c $(HDRS)
+	@mkdir -p $(OBJ)
+	$(CC) $(CFLAGS) $(DEFS) -c $< -o $@
+
+$(OBJ)/gcc_start.o: gcc_start.s
+	@mkdir -p $(OBJ)
+	$(VASM) -quiet -Fhunk -o $@ $<
+
+clean:
+	rm -rf obj.gcc obj.gcc.ro obj.gcc.be obj.gcc.robe
+
+.PHONY: all bffs ro be robe clean

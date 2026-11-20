@@ -1906,6 +1906,7 @@ PFilesysStats(void)
     extern int          cache_used;
     extern int          timer_secs;
     extern int          timer_loops;
+    extern int          cache_item_dirty;
 
     stat->phys_sectorsize   = (ULONG) phys_sectorsize;
     stat->superblock        = (ULONG) superblock;

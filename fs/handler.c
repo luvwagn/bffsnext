@@ -62,11 +62,19 @@ int                timing            = 0;
 int                receiving_packets = 1;
 char              *handler_name      = NULL;
 
-static struct Process     *BFFSTask;
+struct Process            *BFFSTask;
 static struct timerequest *timerIO     = NULL;
 static struct MsgPort     *timerPort   = NULL;
 static int                 write_items = 0;
 static int                 write_delay = 0;
+
+#ifdef __GNUC__
+/* Built with -nostartfiles: nothing opens these for us (see handler()) */
+struct ExecBase      *SysBase       = NULL;
+struct DosLibrary    *DOSBase       = NULL;
+struct IntuitionBase *IntuitionBase = NULL;
+struct Library       *UtilityBase   = NULL;  /* libnix strnicmp() calls it */
+#endif
 
 #ifdef GCC
 struct MsgPort *CreatePort(UBYTE *name, long pri);
@@ -88,7 +96,7 @@ strlower(char *str)
 static void
 NameHandler(const char *name)
 {
-    const char *pos;
+    char *pos;
     if (handler_name != NULL)
         return;
 
@@ -175,6 +183,14 @@ handler(void)
 
 #ifdef GCC
     SysBase = *((ULONG *) 4);
+#endif
+#ifdef __GNUC__
+    SysBase       = *((struct ExecBase **) 4);
+    DOSBase       = (struct DosLibrary *) OpenLibrary("dos.library", 0);
+    IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 0);
+    UtilityBase   = OpenLibrary("utility.library", 37);
+    if ((DOSBase == NULL) || (IntuitionBase == NULL) || (UtilityBase == NULL))
+        return;
 #endif
     BFFSTask = (struct Process *) FindTask(NULL);
     DosPort  = &(BFFSTask->pr_MsgPort);

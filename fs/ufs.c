@@ -72,7 +72,7 @@ struct MsgPort *CreatePort(UBYTE *name, long pri);
 
 extern char *handler_name;      /* device name handler was started as */
 
-S struct IOExtTD *trackIO     = NULL;  /* trackdisk IORequest for data */
+struct IOExtTD *trackIO       = NULL;  /* trackdisk IORequest for data */
 S struct IOExtTD *dchangeIO   = NULL;  /* trackdisk IORequest for disk change */
 S struct MsgPort *devport     = NULL;  /* port for comm. with device */
 S struct MsgPort *dchangePort = NULL;  /* port for disk change notification */
@@ -1378,8 +1378,8 @@ disk16(unsigned short x)
     return (((x >> 8) & 255) | ((x & 255) << 8));
 }
 
-unsigned long
-disk32(unsigned long x)
+unsigned int
+disk32(unsigned int x)
 {
     if (is_big_endian)
         return (x);

@@ -1,0 +1,31 @@
+name: BFFS gcc build
+
+# Run by hand (Actions > BFFS gcc build > Run workflow) and on pull requests.
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install m68k-amigaos-gcc 16.2-rc24 (AmigaPorts), includes vasm
+      shell: bash
+      run: |
+        set -euo pipefail
+        url=https://github.com/AmigaPorts/m68k-amigaos-gcc/releases/download/v16.2-rc24/m68k-amigaos-gcc-16.2-rc24-x86_64-linux.tar.xz
+        curl -fsSL -o /tmp/gcc.tar.xz "$url"
+        echo "b93b070ac47d2f01d126f57c03a8405f71fb470c8397b0bda51041217d25c100  /tmp/gcc.tar.xz" | sha256sum -c -
+        sudo mkdir -p /opt/amiga-gcc && sudo tar xJf /tmp/gcc.tar.xz -C /opt/amiga-gcc --strip-components=1
+        echo /opt/amiga-gcc/bin >> "$GITHUB_PATH"
+
+    - name: Build all handler variants
+      run: make -C fs -f Makefile.gcc all
+
+    - name: Archive handlers
+      uses: actions/upload-artifact@v4
+      with:
+        name: BFFSFileSystem
+        path: l/BFFSFileSystem*
