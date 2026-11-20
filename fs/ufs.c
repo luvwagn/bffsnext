@@ -1032,6 +1032,21 @@ superblock_read(int partition)
     /* determine filesystem type and patch up if older */
     ffs_oldfscompat();
 
+#ifndef RONLY
+    /*
+     * A BSD 4.3 format filesystem whose fs_nspf is not in 512 byte units
+     * was created on a system with a different DEV_BSIZE (NeXT uses 1024).
+     * There, ic_blocks and the cylinder group position tables are counted
+     * in those larger units, which the BFFS write code does not handle.
+     * Reading is unaffected, so force such a filesystem read-only.
+     */
+    if (!bsd44fs && (DISK32(superblock->fs_nspf) * 512 != FSIZE)) {
+        PRINT2(("DEV_BSIZE is not 512 (nspf=%u fsize=%u): read-only\n",
+                DISK32(superblock->fs_nspf), FSIZE));
+        superblock->fs_ronly = 1;
+    }
+#endif
+
     return (0);
 
 bad_superblock:
